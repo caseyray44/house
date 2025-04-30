@@ -12,10 +12,6 @@ MAPBOX_TOKEN = "pk.eyJ1IjoiY2FzZXlyYXk0IiwiYSI6ImNtYTRic2JzdTA1bTcya3B5bzZibjZsd
 # Fallback center (Pequot Lakes, MN)
 DEFAULT_LON, DEFAULT_LAT = -94.3559, 46.5547
 
-# Initialize run state
-if 'run' not in st.session_state:
-    st.session_state.run = False
-
 # --- HELPERS ---
 
 def geocode(address):
@@ -29,7 +25,7 @@ def geocode(address):
     return lon, lat
 
 
-def create_map(lon, lat, zoom_start=18, max_zoom=22):
+def create_map(lon, lat, zoom_start=20, max_zoom=22):
     m = folium.Map(location=[lat, lon], zoom_start=zoom_start, max_zoom=max_zoom, control_scale=True)
     # Base layers
     styles = {
@@ -62,6 +58,7 @@ def create_map(lon, lat, zoom_start=18, max_zoom=22):
                 control=True,
                 overlay=False
             ).add_to(m)
+    # Draw plugin
     Draw(
         export=False,
         draw_options={
@@ -105,30 +102,27 @@ def fetch_building_height(lon, lat):
 st.set_page_config(layout="wide")
 st.title("🏠 Roof Measurement Prototype")
 
-# Input controls
-left, right = st.columns([1, 3])
-with left:
-    address = st.text_input("Enter address", "1600 Pennsylvania Ave NW, Washington, DC")
-    zoom = st.slider("Zoom level", min_value=15, max_value=22, value=20)
-    if st.button("Run"):
-        st.session_state.run = True
+# Sidebar inputs
+st.sidebar.header("Controls")
+address = st.sidebar.text_input("Address", "1600 Pennsylvania Ave NW, Washington, DC")
+zoom = st.sidebar.slider("Zoom level", 15, 22, 20)
+run = st.sidebar.button("Run")
 
-# Map and drawing
-if st.session_state.run:
+# Main map and metrics
+if run:
     lon, lat = geocode(address)
     if lon is None:
-        st.warning("⚠️ Geocoding failed. Pan/zoom map manually to your property.")
+        st.sidebar.warning("⚠️ Geocoding failed. Pan/zoom manually.")
         lon, lat = DEFAULT_LON, DEFAULT_LAT
     m = create_map(lon, lat, zoom_start=zoom, max_zoom=22)
-    right.markdown(
-        "**Draw a polygon around the roof plane**: use the toolbar (top-left) and double-click to finish. "
-        "Switch layers (top-right) if trees block the view."
+    st.markdown(
+        "**Draw a polygon around the roof plane:** use the toolbar (top-left) and double-click to finish. "
+        "Use the layer control (top-right) to switch imagery if needed."
     )
-    output = right.st_folium(m, width=900, height=600, returned_objects=["last_drawn_feature"])
+    output = st_folium(m, width=900, height=600, returned_objects=["last_drawn_feature"])
     feat = output.get("last_drawn_feature")
     if feat and feat.get("geometry", {}).get("type") == "Polygon":
-        poly = feat["geometry"]
-        area_ft2, peri_ft = compute_metrics(poly)
+        area_ft2, peri_ft = compute_metrics(feat["geometry"])
         st.success(f"**Area:** {area_ft2:,.1f} ft²    **Perimeter:** {peri_ft:,.1f} ft")
         height = fetch_building_height(lon, lat)
         if height:
@@ -136,4 +130,4 @@ if st.session_state.run:
         else:
             st.warning("Building height not available.")
     else:
-        st.info("🎯 Draw a polygon then double-click to compute metrics.")
+        st.info("🎯 Draw a polygon and double-click to compute metrics.")
