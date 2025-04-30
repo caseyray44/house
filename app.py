@@ -23,8 +23,8 @@ def geocode(address):
     return lon, lat
 
 
-def create_map(lon, lat, zoom=18):
-    m = folium.Map(location=[lat, lon], zoom_start=zoom, control_scale=True)
+def create_map(lon, lat, zoom_start=18, max_zoom=22):
+    m = folium.Map(location=[lat, lon], zoom_start=zoom_start, max_zoom=max_zoom, control_scale=True)
     # Base layer options
     styles = {
         'OSM': None,
@@ -36,20 +36,22 @@ def create_map(lon, lat, zoom=18):
     }
     for name, style in styles.items():
         if style:
-            tiles = (
-                f"https://api.mapbox.com/styles/v1/mapbox/{style}/tiles/{{z}}/{{x}}/{{y}}"
+            tiles_url = (
+                f"https://api.mapbox.com/styles/v1/mapbox/{style}/tiles/{{z}}/{{x}}/{{y}}@2x"  # retina
                 f"?access_token={MAPBOX_TOKEN}"
             )
             folium.TileLayer(
-                tiles=tiles,
+                tiles=tiles_url,
                 attr=f"Mapbox {name}",
                 name=name,
-                control=True
+                control=True,
+                tile_size=512,
+                zoom_offset=-1
             ).add_to(m)
         else:
             folium.TileLayer('OpenStreetMap', name=name, control=True).add_to(m)
 
-    # Drawing plugin
+    # Drawing plugin (only polygon)
     Draw(
         export=False,
         draw_options={
@@ -58,6 +60,7 @@ def create_map(lon, lat, zoom=18):
             'circle': False,
             'circlemarker': False,
             'marker': False,
+            'polygon': True
         },
         edit_options={'edit': True}
     ).add_to(m)
@@ -100,15 +103,15 @@ address = st.text_input("Enter address", "1600 Pennsylvania Ave NW, Washington, 
 if st.button("Run"):
     lon, lat = geocode(address)
     if lon is not None and lat is not None:
-        m = create_map(lon, lat)
+        m = create_map(lon, lat, zoom_start=20, max_zoom=22)
         st.markdown(
-            "**Draw a polygon around the roof plane**: use the drawing toolbar (top-left) and double-click to finish."  
-            "Toggle base layers via the control (top-right) if trees obscure the view."
+            "**Draw a polygon around the roof plane**: use the drawing toolbar (top-left) and double-click to finish. "
+            "Use the layer control (top-right) to switch imagery if needed. Zoom in closely for precise corner placement."
         )
-        out = st_folium(m, width=800, height=500, returned_objects=["last_drawn_feature"])
-        feat = out.get("last_drawn_feature")
-        if feat and feat.get("geometry", {}).get("type") == "Polygon":
-            roof_poly = feat["geometry"]
+        out = st_folium(m, width=800, height=600, returned_objects=["all_drawn_features"])
+        feats = out.get("all_drawn_features") or []
+        if feats and feats[-1].get("geometry", {}).get("type") == "Polygon":
+            roof_poly = feats[-1]["geometry"]
             area_ft2, peri_ft = compute_metrics(roof_poly)
             st.success(f"**Area:** {area_ft2:,.1f} ft²  |  **Perimeter:** {peri_ft:,.1f} ft")
             height_ft = fetch_building_height(lon, lat)
