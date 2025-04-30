@@ -8,7 +8,11 @@ from shapely.ops import transform
 import pyproj
 
 # --- CONFIG ---
-MAPBOX_TOKEN = "pk.eyJ1IjoiY2FzZXlyYXk0IiwiYSI6ImNtYTRic2JzdTA1bDcya3B5bzZibjZsdGIifQ.JYBfeSWP0uf7CdJjWOnsHg"
+MAPBOX_TOKEN = "pk.eyJ1IjoiY2FzZXlyYXk0IiwiYSI6ImNtYTRic2JzdTA1bTcya3B5bzZibjZsdGIifQ.JYBfeSWP0uf7CdJjWOnsHg"
+
+# Initialize run state
+if 'run' not in st.session_state:
+    st.session_state.run = False
 
 # --- HELPERS ---
 
@@ -24,8 +28,9 @@ def geocode(address):
     return lon, lat
 
 
-def create_map(lon, lat, zoom_start=20, max_zoom=25):
+def create_map(lon, lat, zoom_start=18, max_zoom=22):
     m = folium.Map(location=[lat, lon], zoom_start=zoom_start, max_zoom=max_zoom, control_scale=True)
+    # Base layers (only one active at a time)
     styles = {
         'OSM': None,
         'Satellite': 'satellite-v9',
@@ -42,16 +47,22 @@ def create_map(lon, lat, zoom_start=20, max_zoom=25):
             )
             folium.TileLayer(
                 tiles=tiles,
-                attr=f"Mapbox {name}",
                 name=name,
                 control=True,
+                overlay=False,
                 tile_size=512,
-                zoom_offset=-1
+                zoom_offset=-1,
+                attr=f"Mapbox {name}"
             ).add_to(m)
         else:
-            folium.TileLayer('OpenStreetMap', name=name, control=True).add_to(m)
+            folium.TileLayer(
+                tiles='OpenStreetMap',
+                name=name,
+                control=True,
+                overlay=False
+            ).add_to(m)
 
-    # Draw only polygons
+    # Draw only polygon
     Draw(
         export=False,
         draw_options={
@@ -62,7 +73,7 @@ def create_map(lon, lat, zoom_start=20, max_zoom=25):
             'marker': False,
             'polygon': True
         },
-        edit_options={'edit': True}
+        edit_options={'edit': True, 'remove': True}
     ).add_to(m)
     folium.LayerControl(collapsed=False).add_to(m)
     return m
@@ -75,7 +86,6 @@ def compute_metrics(geom_geojson):
     poly_m = transform(proj, poly)
     area_m2 = poly_m.area
     perimeter_m = poly_m.length
-    # convert to feet
     return area_m2 * 10.7639, perimeter_m * 3.28084
 
 
@@ -88,27 +98,34 @@ def fetch_building_height(lon, lat):
         height = props.get('height') or props.get('building:levels')
         if height:
             m = float(height)
-            # if levels, approximate 3m per story
             if 'levels' in props:
                 m *= 3
             return m * 3.28084
     return None
 
-# --- APP ---
+# --- UI ---
 st.set_page_config(layout="wide")
 st.title("🏠 Roof Measurement Prototype")
 
-address = st.text_input("Enter address", "1600 Pennsylvania Ave NW, Washington, DC")
-zoom = st.slider("Zoom level", min_value=15, max_value=25, value=20)
-if st.button("Run"):
+# Inputs
+dcol, mcol = st.columns([1,3])
+with dcol:
+    address = st.text_input("Enter address", "1600 Pennsylvania Ave NW, Washington, DC")
+    zoom = st.slider("Zoom level", min_value=15, max_value=22, value=20)
+    if st.button("Run"):
+        st.session_state.run = True
+
+# Main map & draw
+if st.session_state.run:
     lon, lat = geocode(address)
     if lon is not None:
-        m = create_map(lon, lat, zoom_start=zoom, max_zoom=25)
-        st.markdown(
-            "**Draw a polygon around the roof plane:** use the top-left toolbar and double-click to finish. "
-            "Switch layers in the top-right control. Zoom in fully for precise corner picks."
+        m = create_map(lon, lat, zoom_start=zoom, max_zoom=22)
+        mcol.markdown(
+            "**Draw a polygon around the roof plane**: "
+            "use the top-left toolbar and double-click to complete. "
+            "Switch layers (top-right) if trees obstruct."
         )
-        out = st_folium(m, width=900, height=600, returned_objects=["last_drawn_feature"])
+        out = mcol.st_folium(m, width=900, height=600, returned_objects=["last_drawn_feature"])
         feat = out.get("last_drawn_feature")
         if feat and feat.get("geometry", {}).get("type") == "Polygon":
             poly = feat["geometry"]
