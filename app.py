@@ -1,3 +1,41 @@
+# Roof Measurement Prototype
+
+**User need:**
+> A simple web app where you can pan/zoom to any property, draw the roof outline by clicking corners, and instantly get:
+> 1. **Total roof area** (ft²)  
+> 2. **Total perimeter** (ft)  
+> 3. **Approximate highest elevation** (ft)
+
+---
+
+## App design
+
+### Tech stack
+- **Streamlit** for UI and rapid deployment  
+- **Folium** with **Leaflet Draw** plugin for interactive map & drawing  
+- **Streamlit-Folium** integration to embed the map  
+- **Shapely** & **PyProj** for geometry calculations  
+- **Mapbox Satellite tiles** (via tile URL + access token) for high-resolution imagery  
+
+### File structure
+```
+roof-measurement-proto/
+├── app.py
+├── requirements.txt
+└── README.md
+```
+
+#### requirements.txt
+```
+streamlit
+folium
+streamlit-folium
+shapely
+pyproj
+```
+
+### app.py outline
+```python
 import streamlit as st
 from streamlit_folium import st_folium
 import folium
@@ -7,50 +45,43 @@ from shapely.ops import transform
 import pyproj
 
 # --- CONFIG ---
-MAPBOX_TOKEN = "pk.eyJ1IjoiY2FzZXlyYXk0IiwiYSI6ImNtYTRic2JzdTA1bTcya3B5bzZibjZsdGIifQ.JYBfeSWP0uf7CdJjWOnsHg"
-DEFAULT_LOCATION = [46.5547, -94.3559]  # Pequot Lakes, MN
+MAPBOX_TOKEN = "<YOUR_TOKEN>"
+DEFAULT_LOCATION = [<lat>, <lon>]  # e.g. center of your area or fallback
 
 # --- HELPERS ---
+def compute_metrics(geojson_polygon):
+    # project to metric CRS, compute area & length, convert to ft²/ft
+    pass
 
-def compute_metrics(geom):
-    poly = shape(geom)
-    transformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
-    poly_m = transform(transformer, poly)
-    area_ft2 = poly_m.area * 10.7639
-    peri_ft = poly_m.length * 3.28084
-    return area_ft2, peri_ft
+def fetch_peak_height(lon, lat):
+    # optional: call Mapbox Terrain-RGB API, decode elevation, return max
+    pass
 
-# --- APP ---
+# --- UI ---
 st.set_page_config(layout="wide")
 st.title("🏠 Roof Measurement Prototype")
 
-st.markdown("""
-1. Pan/zoom to your property.
-2. Trace the roof outline with the draw tool (top-left).
-3. Finish the polygon; metrics will display below.
-"""
-)
+st.write("Pan/zoom to your roof, draw the polygon, get instant area, perimeter, height.")
 
-# Initialize map
-draw_map = folium.Map(location=DEFAULT_LOCATION, zoom_start=18, max_zoom=22, control_scale=True)
-# Add base layers
-tiles = f"https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/{{z}}/{{x}}/{{y}}@2x?access_token={MAPBOX_TOKEN}"
-folium.TileLayer(tiles=tiles, attr="Satellite", name="Satellite", control=True, overlay=False).add_to(draw_map)
-folium.TileLayer("OpenStreetMap", name="OSM", control=True, overlay=False).add_to(draw_map)
-folium.LayerControl(collapsed=False).add_to(draw_map)
-# Enable only polygon drawing
-draw = Draw(export=False,
-            draw_options={'polygon': True, 'polyline': False, 'rectangle': False, 'circle': False, 'marker': False},
-            edit_options={'edit': True, 'remove': True})
-draw.add_to(draw_map)
+# build folium map: add Satellite + OSM layers, add Draw(polygon-only)
+m = folium.Map(location=DEFAULT_LOCATION, zoom_start=18)
+# add tile layers & Draw plugin...
 
-# Render map and capture last drawn feature
-output = st_folium(draw_map, width=800, height=500, returned_objects=['last_drawn_feature'])
-feature = output.get('last_drawn_feature')
+# embed map and capture drawn polygon
+output = st_folium(m, width=800, height=600, returned_objects=['last_drawn_feature'])
+poly = output.get('last_drawn_feature')
 
-if feature and feature.get('geometry', {}).get('type') == 'Polygon':
-    area, peri = compute_metrics(feature['geometry'])
-    st.success(f"**Area:** {area:,.1f} ft²    **Perimeter:** {peri:,.1f} ft")
-else:
-    st.info("🔍 Draw a polygon around the roof to see measurements.")
-"
+if poly:
+    area, peri = compute_metrics(poly['geometry'])
+    st.success(f"Area: {area:.1f} ft² | Perimeter: {peri:.1f} ft")
+    height = fetch_peak_height(...)
+    if height:
+        st.success(f"Approx. peak height: {height:.1f} ft")
+```
+
+---
+
+**Next steps:**
+1. Fill in the helper functions with actual code.  
+2. Deploy `app.py` on Streamlit Cloud.  
+3. Test by drawing on a sample roof and verifying metrics.  
