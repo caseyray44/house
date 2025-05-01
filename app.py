@@ -1,132 +1,110 @@
-```python
-# app.py
-
 import streamlit as st
-from streamlit_folium import st_folium
-import folium
-from folium.plugins import Draw
-from shapely.geometry import shape
-from shapely.ops import transform
-import pyproj
-import requests
-import math
-
-# --- CONFIG ---
-MAPBOX_TOKEN = "pk.eyJ1IjoiY2FzZXlyYXk0IiwiYSI6ImNtYTRic2JzdTA1bTcya3B5bzZibjZsdGIifQ.JYBfeSWP0uf7CdJjWOnsHg"
-# Fallback center: Pequot Lakes, MN
-default_lat, default_lon = 46.5547, -94.3559
-
-# --- HELPERS ---
-
-def compute_metrics(polygon_geojson):
-    """
-    Given a GeoJSON Polygon, project to EPSG:3857 to calculate area and perimeter,
-    then convert to square feet and feet.
-    """
-    # Convert to Shapely geometry
-    poly = shape(polygon_geojson)
-    # Project to metric (meters)
-    project = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
-    poly_m = transform(project, poly)
-    area_m2 = poly_m.area
-    peri_m = poly_m.length
-    # Convert to ft² and ft
-    area_ft2 = area_m2 * 10.7639
-    peri_ft = peri_m * 3.28084
-    return area_ft2, peri_ft
-
-
-def fetch_peak_height(lon, lat, zoom=14):
-    """
-    Fetch approximate peak elevation via Mapbox Terrain-RGB.
-    Decodes the single pixel at the given location for elevation.
-    """
-    # Calculate tile coordinates
-    def deg2num(lat_deg, lon_deg, zoom):
-        lat_rad = math.radians(lat_deg)
-        n = 2.0 ** zoom
-        xtile = int((lon_deg + 180.0) / 360.0 * n)
-        ytile = int((1.0 - math.log(math.tan(lat_rad) + 1/math.cos(lat_rad)) / math.pi) / 2.0 * n)
-        return xtile, ytile
-
-    xt, yt = deg2num(lat, lon, zoom)
-    url = f"https://api.mapbox.com/v4/mapbox.terrain-rgb/{zoom}/{xt}/{yt}@2x.pngraw?access_token={MAPBOX_TOKEN}"
-    resp = requests.get(url)
-    if resp.status_code != 200:
-        return None
-    from io import BytesIO
-    from PIL import Image
-    img = Image.open(BytesIO(resp.content))
-    # Sample center pixel
-    w, h = img.size
-    r, g, b = img.getpixel((w//2, h//2))
-    # Decode height per Mapbox spec
-    height = -10000 + ((r * 256 * 256 + g * 256 + b) * 0.1)
-    return height  # in meters
-
-# --- UI ---
-st.set_page_config(layout="wide", page_title="Roof Measurement")
-st.title("🏠 Roof Measurement Prototype")
-
-st.markdown(
-    "1. Pan/zoom to your property (default = Pequot Lakes, MN).  
-     2. Use the draw tool (top-left) to outline the roof.  
-     3. Complete the polygon; area & perimeter will display below.  
-     4. Peak height (via Terrain-RGB) shows if available."
-)
-
-# Initialize map
-m = folium.Map(
-    location=[default_lat, default_lon],
-    zoom_start=18,
-    max_zoom=22,
-    control_scale=True
-)
-# Add tile layers
-folium.TileLayer(
-    tiles=f"https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/{{z}}/{{x}}/{{y}}@2x?access_token={MAPBOX_TOKEN}",
-    attr="Mapbox Satellite",
-    name="Satellite",
-    overlay=False,
-    control=True,
-    tile_size=512,
-    zoom_offset=-1
-).add_to(m)
-folium.TileLayer("OpenStreetMap", name="OSM", overlay=False, control=True).add_to(m)
-folium.LayerControl(collapsed=False).add_to(m)
-# Enable drawing polygons only
-draw = Draw(
-    export=False,
-    draw_options={
-        'polygon': True,
-        'polyline': False,
-        'rectangle': False,
-        'circle': False,
-        'marker': False,
-        'circlemarker': False
-    },
-    edit_options={'edit': True, 'remove': True}
-)
-draw.add_to(m)
-
-# Render map and capture drawn polygon
-output = st_folium(m, width=800, height=500, returned_objects=['last_drawn_feature'])
-feature = output.get('last_drawn_feature')
-
-if feature and feature.get('geometry', {}).get('type') == 'Polygon':
-    area, peri = compute_metrics(feature['geometry'])
-    st.success(f"**Area:** {area:,.1f} ft²   **Perimeter:** {peri:,.1f} ft")
-    # Peak height
-    coords = feature['geometry']['coordinates'][0]
-    # pick centroid for height sample
-    lon = sum(pt[0] for pt in coords) / len(coords)
-    lat = sum(pt[1] for pt in coords) / len(coords)
-    height_m = fetch_peak_height(lon, lat)
-    if height_m is not None:
-        height_ft = height_m * 3.28084
-        st.success(f"**Approx. Peak Elevation:** {height_ft:,.1f} ft above sea level")
-    else:
-        st.info("Peak elevation unavailable.")
-else:
-    st.info("🔍 Draw a polygon to compute roof metrics.")
-```
+ from streamlit_folium import st_folium
+ import folium
+ from folium.plugins import Draw
+ import requests
+ from shapely.geometry import shape
+ from shapely.ops import transform
+ @@ -23,20 +24,33 @@
+ 
+ 
+ def create_map(lon, lat, zoom=18):
+     tiles_url = (
+         f"https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/{{z}}/{{x}}/{{y}}"
+         f"?access_token={MAPBOX_TOKEN}"
+     )
+     m = folium.Map(location=[lat, lon], zoom_start=zoom, tiles=None)
+     folium.TileLayer(
+         tiles=tiles_url,
+         attr="Mapbox Satellite",
+         name="Satellite",
+         overlay=False,
+         control=False,
+     ).add_to(m)
+     folium.LayerControl().add_to(m)
+     folium.plugins.Draw(
+     m = folium.Map(location=[lat, lon], zoom_start=zoom, control_scale=True)
+     # Base layer options
+     styles = {
+         'OSM': None,
+         'Satellite': 'satellite-v9',
+         'Satellite Streets': 'satellite-streets-v11',
+         'Streets': 'streets-v11',
+         'Light': 'light-v10',
+         'Dark': 'dark-v10'
+     }
+     for name, style in styles.items():
+         if style:
+             tiles = (
+                 f"https://api.mapbox.com/styles/v1/mapbox/{style}/tiles/{{z}}/{{x}}/{{y}}"
+                 f"?access_token={MAPBOX_TOKEN}"
+             )
+             folium.TileLayer(
+                 tiles=tiles,
+                 attr=f"Mapbox {name}",
+                 name=name,
+                 control=True
+             ).add_to(m)
+         else:
+             folium.TileLayer('OpenStreetMap', name=name, control=True).add_to(m)
+ 
+     # Drawing plugin
+     Draw(
+         export=False,
+         draw_options={
+             'polyline': False,
+ @@ -47,12 +61,12 @@
+         },
+         edit_options={'edit': True}
+     ).add_to(m)
+     folium.LayerControl(collapsed=False).add_to(m)
+     return m
+ 
+ 
+ def compute_metrics(geom_geojson):
+     poly = shape(geom_geojson)
+     # Project from EPSG:4326 to EPSG:3857 for metric units
+     projector = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
+     poly_m = transform(projector, poly)
+     area_m2 = poly_m.area
+ @@ -71,7 +85,6 @@
+         props = feats[0].get('properties', {})
+         height = props.get('height') or props.get('building:levels')
+         if height:
+             # If building:levels, assume 3m per level
+             if 'levels' in props:
+                 height_m = float(height) * 3
+             else:
+ @@ -84,22 +97,24 @@
+ st.title("🏠 Roof Measurement Prototype")
+ 
+ address = st.text_input("Enter address", "1600 Pennsylvania Ave NW, Washington, DC")
+ if st.button("Run"):  
+ if st.button("Run"):
+     lon, lat = geocode(address)
+     if lon and lat:
+     if lon is not None and lat is not None:
+         m = create_map(lon, lat)
+         st.markdown("**Draw a polygon around the roof plane**: use the drawing toolbar on the map and double-click to finish.")
+         out = st_folium(m, width=800, height=500, returned_objects=["geometries"])
+         geoms = out.get("geometries", [])
+         if geoms:
+             # Take the last polygon drawn
+             roof_poly = geoms[-1]
+         st.markdown(
+             "**Draw a polygon around the roof plane**: use the drawing toolbar (top-left) and double-click to finish."  
+             "Toggle base layers via the control (top-right) if trees obscure the view."
+         )
+         out = st_folium(m, width=800, height=500, returned_objects=["last_drawn_feature"])
+         feat = out.get("last_drawn_feature")
+         if feat and feat.get("geometry", {}).get("type") == "Polygon":
+             roof_poly = feat["geometry"]
+             area_ft2, peri_ft = compute_metrics(roof_poly)
+             st.success(f"**Area:** {area_ft2:,.1f} ft²  |  **Perimeter:** {peri_ft:,.1f} ft")
+             height_ft = fetch_building_height(lon, lat)
+             if height_ft:
+                 st.success(f"**Approx. Building Height:** {height_ft:.1f} ft")
+             else:
+                 st.warning("Building height data not available from Mapbox Streets layer.")
+         else:
+             st.info("Draw a polygon first to compute metrics.")
